@@ -92,6 +92,10 @@ func mustConnect(t *testing.T, s *service) int64 {
 	return h
 }
 
+func sItem(id string) map[string]types.AttributeValue {
+	return map[string]types.AttributeValue{"id": &types.AttributeValueMemberS{Value: id}}
+}
+
 func TestConnectMintsSequentialHandles(t *testing.T) {
 	s := serviceFor(&fakeDynamo{})
 	if h := mustConnect(t, s); h != 1 {
@@ -172,7 +176,7 @@ func TestCloseReleasesHandle(t *testing.T) {
 
 func TestUnknownHandleIsAnError(t *testing.T) {
 	s := serviceFor(&fakeDynamo{})
-	_, err := s.scan(context.Background(), 7, "t")
+	_, err := s.scan(context.Background(), 7, "t", 0)
 	if err == nil || !strings.Contains(err.Error(), "unknown client handle 7") {
 		t.Fatalf("scan error = %v, want unknown client handle 7", err)
 	}
@@ -340,20 +344,14 @@ func TestDeleteItemPassesKey(t *testing.T) {
 	}
 }
 
-func TestScanFollowsPagination(t *testing.T) {
+func TestScanWithoutLimitFollowsPagination(t *testing.T) {
 	api := &fakeDynamo{scanOut: []*dynamodb.ScanOutput{
-		{
-			Items: []map[string]types.AttributeValue{
-				{"id": &types.AttributeValueMemberS{Value: "a"}},
-				{"id": &types.AttributeValueMemberS{Value: "b"}},
-			},
-			LastEvaluatedKey: map[string]types.AttributeValue{"id": &types.AttributeValueMemberS{Value: "b"}},
-		},
-		{Items: []map[string]types.AttributeValue{{"id": &types.AttributeValueMemberS{Value: "c"}}}},
+		{Items: []map[string]types.AttributeValue{sItem("a"), sItem("b")}, LastEvaluatedKey: sItem("b")},
+		{Items: []map[string]types.AttributeValue{sItem("c")}},
 	}}
 	s := serviceFor(api)
 	h := mustConnect(t, s)
-	items, err := s.scan(context.Background(), h, "Users")
+	items, err := s.scan(context.Background(), h, "Users", 0)
 	if err != nil {
 		t.Fatalf("scan: %v", err)
 	}
@@ -363,15 +361,49 @@ func TestScanFollowsPagination(t *testing.T) {
 	if len(api.scanIn) != 2 || aws.ToString(api.scanIn[0].TableName) != "Users" {
 		t.Fatalf("scan calls = %d (table %q), want 2 calls on Users", len(api.scanIn), aws.ToString(api.scanIn[0].TableName))
 	}
+	if api.scanIn[0].Limit != nil {
+		t.Fatalf("Limit = %v, want none when limit is 0", *api.scanIn[0].Limit)
+	}
 	if api.scanIn[1].ExclusiveStartKey == nil {
 		t.Fatal("second page did not carry ExclusiveStartKey")
+	}
+}
+
+func TestScanStopsAtLimitAndAsksForNoMoreThanNeeded(t *testing.T) {
+	api := &fakeDynamo{scanOut: []*dynamodb.ScanOutput{
+		{Items: []map[string]types.AttributeValue{sItem("a"), sItem("b")}, LastEvaluatedKey: sItem("b")},
+		{Items: []map[string]types.AttributeValue{sItem("c"), sItem("d")}, LastEvaluatedKey: sItem("d")},
+		{Items: []map[string]types.AttributeValue{sItem("e")}},
+	}}
+	s := serviceFor(api)
+	h := mustConnect(t, s)
+	items, err := s.scan(context.Background(), h, "Users", 3)
+	if err != nil {
+		t.Fatalf("scan: %v", err)
+	}
+	if len(items) != 3 || items[2]["id"] != "c" {
+		t.Fatalf("items = %#v, want exactly a, b, c", items)
+	}
+	if len(api.scanIn) != 2 {
+		t.Fatalf("scan calls = %d, want 2 (stop once the limit is reached)", len(api.scanIn))
+	}
+	if aws.ToInt32(api.scanIn[0].Limit) != 3 || aws.ToInt32(api.scanIn[1].Limit) != 1 {
+		t.Fatalf("Limit per request = %v, %v; want 3 then 1 (the remainder)", aws.ToInt32(api.scanIn[0].Limit), aws.ToInt32(api.scanIn[1].Limit))
+	}
+}
+
+func TestScanRejectsNegativeLimit(t *testing.T) {
+	s := serviceFor(&fakeDynamo{})
+	h := mustConnect(t, s)
+	if _, err := s.scan(context.Background(), h, "Users", -1); err == nil || !strings.Contains(err.Error(), "limit") {
+		t.Fatalf("scan(-1) error = %v, want a limit error", err)
 	}
 }
 
 func TestScanOfEmptyTableIsAnEmptyArray(t *testing.T) {
 	s := serviceFor(&fakeDynamo{})
 	h := mustConnect(t, s)
-	items, err := s.scan(context.Background(), h, "Users")
+	items, err := s.scan(context.Background(), h, "Users", 10)
 	if err != nil {
 		t.Fatalf("scan: %v", err)
 	}
@@ -380,32 +412,169 @@ func TestScanOfEmptyTableIsAnEmptyArray(t *testing.T) {
 	}
 }
 
-func TestQueryPassesConditionAndFollowsPagination(t *testing.T) {
+func TestScanPageIsOneRequestWithLastKey(t *testing.T) {
+	api := &fakeDynamo{scanOut: []*dynamodb.ScanOutput{
+		{Items: []map[string]types.AttributeValue{sItem("a"), sItem("b")}, LastEvaluatedKey: map[string]types.AttributeValue{
+			"id": &types.AttributeValueMemberS{Value: "b"},
+			"n":  &types.AttributeValueMemberN{Value: "2"},
+		}},
+		{Items: []map[string]types.AttributeValue{sItem("c")}},
+	}}
+	s := serviceFor(api)
+	h := mustConnect(t, s)
+	page, err := s.scanPage(context.Background(), h, "Users", 2, nil)
+	if err != nil {
+		t.Fatalf("scanPage: %v", err)
+	}
+	if len(api.scanIn) != 1 {
+		t.Fatalf("scan calls = %d, want exactly 1 (a page is one request)", len(api.scanIn))
+	}
+	if aws.ToInt32(api.scanIn[0].Limit) != 2 || api.scanIn[0].ExclusiveStartKey != nil {
+		t.Fatalf("first request = Limit %v, ExclusiveStartKey %v; want 2 and none", api.scanIn[0].Limit, api.scanIn[0].ExclusiveStartKey)
+	}
+	items, _ := page["items"].([]map[string]any)
+	if len(items) != 2 || items[1]["id"] != "b" {
+		t.Fatalf("page items = %#v, want a, b", page["items"])
+	}
+	lastKey, _ := page["last_key"].(map[string]any)
+	if lastKey["id"] != "b" || lastKey["n"] != float64(2) {
+		t.Fatalf("last_key = %#v, want id b and n 2.0", page["last_key"])
+	}
+
+	next, err := s.scanPage(context.Background(), h, "Users", 2, lastKey)
+	if err != nil {
+		t.Fatalf("second scanPage: %v", err)
+	}
+	start := api.scanIn[1].ExclusiveStartKey
+	if v, ok := start["id"].(*types.AttributeValueMemberS); !ok || v.Value != "b" {
+		t.Fatalf("ExclusiveStartKey.id = %#v, want S b", start["id"])
+	}
+	if v, ok := start["n"].(*types.AttributeValueMemberN); !ok || v.Value != "2" {
+		t.Fatalf("ExclusiveStartKey.n = %#v, want N 2 (a float key round-trips as an integer)", start["n"])
+	}
+	if next["last_key"] != nil {
+		t.Fatalf("last page last_key = %#v, want an explicit null", next["last_key"])
+	}
+	if items, _ := next["items"].([]map[string]any); len(items) != 1 || items[0]["id"] != "c" {
+		t.Fatalf("last page items = %#v, want c", next["items"])
+	}
+}
+
+func TestScanPageWithoutLimitTakesANaturalPage(t *testing.T) {
+	api := &fakeDynamo{}
+	s := serviceFor(api)
+	h := mustConnect(t, s)
+	page, err := s.scanPage(context.Background(), h, "Users", 0, map[string]any{})
+	if err != nil {
+		t.Fatalf("scanPage: %v", err)
+	}
+	if api.scanIn[0].Limit != nil || api.scanIn[0].ExclusiveStartKey != nil {
+		t.Fatalf("request = %+v, want no Limit and no ExclusiveStartKey for limit 0 and an empty start key", api.scanIn[0])
+	}
+	if items, ok := page["items"].([]map[string]any); !ok || items == nil || len(items) != 0 {
+		t.Fatalf("items = %#v, want a non-nil empty slice", page["items"])
+	}
+	if page["last_key"] != nil {
+		t.Fatalf("last_key = %#v, want null", page["last_key"])
+	}
+}
+
+func TestQueryStopsAtLimit(t *testing.T) {
 	api := &fakeDynamo{queryOut: []*dynamodb.QueryOutput{
-		{
-			Items:            []map[string]types.AttributeValue{{"id": &types.AttributeValueMemberS{Value: "a"}}},
-			LastEvaluatedKey: map[string]types.AttributeValue{"id": &types.AttributeValueMemberS{Value: "a"}},
-		},
+		{Items: []map[string]types.AttributeValue{sItem("a"), sItem("b")}, LastEvaluatedKey: sItem("b")},
+		{Items: []map[string]types.AttributeValue{sItem("c"), sItem("d")}, LastEvaluatedKey: sItem("d")},
+	}}
+	s := serviceFor(api)
+	h := mustConnect(t, s)
+	items, err := s.query(context.Background(), h, "Users", "pk = :pk", map[string]any{":pk": "a"}, 3)
+	if err != nil {
+		t.Fatalf("query: %v", err)
+	}
+	if len(items) != 3 || items[2]["id"] != "c" {
+		t.Fatalf("items = %#v, want a, b, c", items)
+	}
+	if len(api.queryIn) != 2 || aws.ToInt32(api.queryIn[0].Limit) != 3 || aws.ToInt32(api.queryIn[1].Limit) != 1 {
+		t.Fatalf("query calls = %d with Limits %v, %v; want 2 calls, 3 then 1", len(api.queryIn), api.queryIn[0].Limit, api.queryIn[1].Limit)
+	}
+	in := api.queryIn[0]
+	if aws.ToString(in.TableName) != "Users" || aws.ToString(in.KeyConditionExpression) != "pk = :pk" {
+		t.Fatalf("query input = %+v", in)
+	}
+	if v, ok := in.ExpressionAttributeValues[":pk"].(*types.AttributeValueMemberS); !ok || v.Value != "a" {
+		t.Fatalf(":pk = %#v, want S a", in.ExpressionAttributeValues[":pk"])
+	}
+	if api.queryIn[1].ExclusiveStartKey == nil {
+		t.Fatal("second page did not carry ExclusiveStartKey")
+	}
+}
+
+func TestQueryWithoutLimitFollowsPagination(t *testing.T) {
+	api := &fakeDynamo{queryOut: []*dynamodb.QueryOutput{
+		{Items: []map[string]types.AttributeValue{sItem("a")}, LastEvaluatedKey: sItem("a")},
 		{Items: []map[string]types.AttributeValue{{"id": &types.AttributeValueMemberS{Value: "a"}, "n": &types.AttributeValueMemberN{Value: "2"}}}},
 	}}
 	s := serviceFor(api)
 	h := mustConnect(t, s)
-	items, err := s.query(context.Background(), h, "Users", "id = :id", map[string]any{":id": "a"})
+	items, err := s.query(context.Background(), h, "Users", "id = :id", map[string]any{":id": "a"}, 0)
 	if err != nil {
 		t.Fatalf("query: %v", err)
 	}
 	if len(items) != 2 || items[1]["n"] != float64(2) {
 		t.Fatalf("items = %#v, want two items with n = 2.0 on the second", items)
 	}
+	if len(api.queryIn) != 2 || api.queryIn[0].Limit != nil {
+		t.Fatalf("query calls = %d, Limit %v; want 2 calls without Limit", len(api.queryIn), api.queryIn[0].Limit)
+	}
+}
+
+func TestQueryPageIsOneRequestWithLastKey(t *testing.T) {
+	api := &fakeDynamo{queryOut: []*dynamodb.QueryOutput{
+		{Items: []map[string]types.AttributeValue{sItem("a")}, LastEvaluatedKey: sItem("a")},
+	}}
+	s := serviceFor(api)
+	h := mustConnect(t, s)
+	page, err := s.queryPage(context.Background(), h, "Users", "pk = :pk", map[string]any{":pk": "a"}, 1, map[string]any{"id": "z"})
+	if err != nil {
+		t.Fatalf("queryPage: %v", err)
+	}
 	in := api.queryIn[0]
-	if aws.ToString(in.TableName) != "Users" || aws.ToString(in.KeyConditionExpression) != "id = :id" {
-		t.Fatalf("query input = %+v", in)
+	if len(api.queryIn) != 1 || aws.ToInt32(in.Limit) != 1 || aws.ToString(in.KeyConditionExpression) != "pk = :pk" {
+		t.Fatalf("query input = %+v (%d calls), want one request with Limit 1", in, len(api.queryIn))
 	}
-	if v, ok := in.ExpressionAttributeValues[":id"].(*types.AttributeValueMemberS); !ok || v.Value != "a" {
-		t.Fatalf(":id = %#v, want S a", in.ExpressionAttributeValues[":id"])
+	if v, ok := in.ExclusiveStartKey["id"].(*types.AttributeValueMemberS); !ok || v.Value != "z" {
+		t.Fatalf("ExclusiveStartKey = %#v, want id z", in.ExclusiveStartKey)
 	}
-	if len(api.queryIn) != 2 || api.queryIn[1].ExclusiveStartKey == nil {
-		t.Fatalf("query calls = %d, want 2 with ExclusiveStartKey on the second", len(api.queryIn))
+	if lastKey, _ := page["last_key"].(map[string]any); lastKey["id"] != "a" {
+		t.Fatalf("last_key = %#v, want id a", page["last_key"])
+	}
+}
+
+// dynamodb_query_page takes six arguments, past the SDK's Func5, so it is an
+// untyped Handler: drive it through the public Handler type.
+func TestQueryPageHandlerChecksArityAndTypes(t *testing.T) {
+	api := &fakeDynamo{queryOut: []*dynamodb.QueryOutput{{Items: []map[string]types.AttributeValue{sItem("a")}}}}
+	s := serviceFor(api)
+	h := mustConnect(t, s)
+	handler := s.handlers()["dynamodb_query_page"]
+	if _, err := handler(context.Background(), noxyplugin.Args{h, "Users", "pk = :pk", map[string]any{":pk": "a"}, int64(5)}); err == nil || !strings.Contains(err.Error(), "6 arguments") {
+		t.Fatalf("5 args error = %v, want an arity error mentioning 6 arguments", err)
+	}
+	if _, err := handler(context.Background(), noxyplugin.Args{h, "Users", "pk = :pk", map[string]any{":pk": "a"}, "five", nil}); err == nil || !strings.Contains(err.Error(), "argument 5") {
+		t.Fatalf("bad limit error = %v, want argument 5 type error", err)
+	}
+	res, err := handler(context.Background(), noxyplugin.Args{h, "Users", "pk = :pk", map[string]any{":pk": "a"}, int64(5), nil})
+	if err != nil {
+		t.Fatalf("query_page: %v", err)
+	}
+	page, ok := res.(map[string]any)
+	if !ok {
+		t.Fatalf("result = %#v, want a page map", res)
+	}
+	if items, _ := page["items"].([]map[string]any); len(items) != 1 || items[0]["id"] != "a" {
+		t.Fatalf("page items = %#v, want a", page["items"])
+	}
+	if api.queryIn[0].ExclusiveStartKey != nil {
+		t.Fatalf("ExclusiveStartKey = %#v, want none for a null start key", api.queryIn[0].ExclusiveStartKey)
 	}
 }
 
@@ -416,8 +585,11 @@ func TestAWSErrorsSurfaceAsHandlerErrors(t *testing.T) {
 	if _, err := s.putItem(context.Background(), h, "Missing", map[string]any{"id": "x"}); err == nil || !strings.Contains(err.Error(), "ResourceNotFoundException") {
 		t.Fatalf("putItem error = %v, want the AWS error", err)
 	}
-	if _, err := s.scan(context.Background(), h, "Missing"); err == nil || !strings.Contains(err.Error(), "ResourceNotFoundException") {
+	if _, err := s.scan(context.Background(), h, "Missing", 10); err == nil || !strings.Contains(err.Error(), "ResourceNotFoundException") {
 		t.Fatalf("scan error = %v, want the AWS error", err)
+	}
+	if _, err := s.scanPage(context.Background(), h, "Missing", 10, nil); err == nil || !strings.Contains(err.Error(), "ResourceNotFoundException") {
+		t.Fatalf("scanPage error = %v, want the AWS error", err)
 	}
 }
 

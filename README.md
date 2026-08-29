@@ -11,7 +11,7 @@ linux/arm64, darwin/amd64, darwin/arm64, windows/amd64 and windows/arm64.
 ## Installation
 
 ```bash
-noxy --get github.com/estevaofon/noxy_dynamodb@v0.2.0
+noxy --get github.com/estevaofon/noxy_dynamodb@v0.3.0
 ```
 
 Without `@version`, `--get` resolves the newest release tag. The package lands
@@ -44,7 +44,8 @@ func main() -> void
         print(f"Found user: {found['name']}")
     end
 
-    let users: map[string, any][] = dynamodb.scan(client, "Users")
+    // Up to 100 users; page through a big table with scan_page instead.
+    let users: map[string, any][] = dynamodb.scan(client, "Users", 100)
     print(f"{length(users)} user(s)")
 
     dynamodb.close(client)
@@ -63,13 +64,51 @@ main()
 | `get_item(client, table: string, key: map[string, any])` | `map[string, any]?` — `null` when the key does not exist | raises |
 | `update_item(client, table: string, key: map[string, any], update_expression: string, expression_values: map[string, any])` | `bool` | `false` |
 | `delete_item(client, table: string, key: map[string, any])` | `bool` | `false` |
-| `scan(client, table: string)` | `map[string, any][]` — every item, all pages | raises |
-| `query(client, table: string, key_condition: string, expression_values: map[string, any])` | `map[string, any][]` — all pages | raises |
+| `scan(client, table: string, limit: int)` | `map[string, any][]` — up to `limit` items | raises |
+| `scan_page(client, table: string, limit: int, start_key: map[string, any]?)` | `Page` — one request | raises |
+| `query(client, table: string, key_condition: string, expression_values: map[string, any], limit: int)` | `map[string, any][]` — up to `limit` items | raises |
+| `query_page(client, table: string, key_condition: string, expression_values: map[string, any], limit: int, start_key: map[string, any]?)` | `Page` — one request | raises |
 
 `Client` is a struct with a single field, `handle: int`, minted by `connect`.
 `update_item` and `query` take DynamoDB expressions verbatim, e.g.
 `dynamodb.update_item(client, "Users", {"id": "u1"}, "SET age = :a", {":a": 31})`
-and `dynamodb.query(client, "Users", "id = :id", {":id": "u1"})`.
+and `dynamodb.query(client, "Users", "id = :id", {":id": "u1"}, 10)`.
+
+### Large tables: `limit` and pages
+
+`scan` and `query` follow DynamoDB's pagination only as far as `limit`
+requires, and each request asks the service for no more than the remainder.
+`limit = 0` means **every item** — opt-in, because on a large table that runs
+until the 60 s call deadline kills it (`extension 'dynamodb' timed out`),
+having consumed read capacity for nothing. To walk a big table in pieces use
+the page functions: one request each, up to `limit` items (`0` = DynamoDB's
+natural page, at most 1 MB), returning a `Page`:
+
+```noxy
+struct Page
+    items: map[string, any][]
+    last_key: map[string, any]?   // null on the last page
+end
+```
+
+```noxy
+let cursor: map[string, any]? = null
+while true do
+    let page: dynamodb.Page = dynamodb.scan_page(client, "Orders", 500, cursor)
+    for order in page.items do
+        process(order)
+    end
+    if page.last_key == null then
+        break
+    end
+    cursor = page.last_key
+end
+```
+
+DynamoDB may return a `last_key` even when the page held the final items (it
+stopped because of `limit`); the next page then comes back empty with
+`last_key == null`. A `last_key` is a plain map (numbers as `float`), so it
+can be stored and resumed later.
 
 ### Errors
 
@@ -80,7 +119,7 @@ call site. The raising functions can be captured with `call_result`:
 ```noxy
 use errors select *
 
-let r = call_result(dynamodb.scan, client, "Users")
+let r = call_result(dynamodb.scan, client, "Users", 100)
 if r.ok then
     print(length(r.value))
 else
@@ -132,7 +171,7 @@ downloads that workstation's binary, but it records the Linux hashes in
 
 ```bash
 curl -L -o noxy_libs/github_com/estevaofon/noxy_dynamodb/bin/noxy-plugin-dynamodb-linux-amd64 \
-  https://github.com/estevaofon/noxy_dynamodb/releases/download/v0.2.0/noxy-plugin-dynamodb-linux-amd64
+  https://github.com/estevaofon/noxy_dynamodb/releases/download/v0.3.0/noxy-plugin-dynamodb-linux-amd64
 chmod +x noxy_libs/github_com/estevaofon/noxy_dynamodb/bin/noxy-plugin-dynamodb-linux-amd64
 ```
 
@@ -150,9 +189,13 @@ for the layer layout.
 - `Client` has `handle: int` instead of `id: string`; `connect` raises on
   failure instead of returning `Client("")`.
 - `get_item` returns `map[string, any]?`; `scan` and `query` return
-  `map[string, any][]` and follow pagination (all items, not just the first
-  page). `put_item`, `update_item` and `delete_item` still return `bool`.
-- New: `close(client)`; connect options `"endpoint"` and `"profile"`.
+  `map[string, any][]` and take a trailing `limit` (v0.1 silently returned
+  the first page only; `0` = everything). `put_item`, `update_item` and
+  `delete_item` still return `bool`.
+- New: `scan_page` / `query_page` with `Page{items, last_key}`;
+  `close(client)`; connect options `"endpoint"` and `"profile"`.
+- v0.2.0 → v0.3.0: `scan(client, table)` became `scan(client, table, limit)`
+  and `query(...)` gained `limit`; the page functions are new.
 
 ## Development
 

@@ -41,14 +41,24 @@ params = ["int", "string", "map[string]any"]
 returns = "void"
 
 [[export]]
-name = "dynamodb_scan"
-params = ["int", "string"]
+name = "dynamodb_scan"          # (handle, table, limit): up to limit items; 0 = every item
+params = ["int", "string", "int"]
 returns = "map[string]any[]"
 
 [[export]]
-name = "dynamodb_query"
-params = ["int", "string", "string", "map[string]any"]
+name = "dynamodb_scan_page"     # (handle, table, limit, start_key | null): one request
+params = ["int", "string", "int", "map[string]any"]
+returns = "map[string]any"      # {"items": [...], "last_key": key | null}
+
+[[export]]
+name = "dynamodb_query"         # (handle, table, key_condition, expression_values, limit)
+params = ["int", "string", "string", "map[string]any", "int"]
 returns = "map[string]any[]"
+
+[[export]]
+name = "dynamodb_query_page"    # (handle, table, key_condition, expression_values, limit, start_key | null)
+params = ["int", "string", "string", "map[string]any", "int", "map[string]any"]
+returns = "map[string]any"
 
 [[export]]
 name = "dynamodb_close"

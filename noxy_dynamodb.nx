@@ -4,13 +4,20 @@
 // the VM from noxy_ext.toml when this module is imported; the binary in
 // bin/ starts on the first call. A failure inside the extension is a
 // runtime error (`extension 'dynamodb' failed: <message>`): connect,
-// get_item, scan and query raise it; put_item, update_item and delete_item
-// keep their `-> bool` shape through call_result.
+// get_item, scan, query and the page functions raise it; put_item,
+// update_item and delete_item keep their `-> bool` shape through call_result.
 use errors select *
 
 // A client minted by connect; valid until close (or the end of the process).
 struct Client
     handle: int
+end
+
+// One page of a scan or query. last_key is null on the last page; pass it
+// back as start_key to fetch the next one.
+struct Page
+    items: map[string, any][]
+    last_key: map[string, any]?
 end
 
 // connect opens a client. options: {"region": "us-east-1"}; also accepted:
@@ -57,16 +64,39 @@ func delete_item(client: Client, table: string, key: map[string, any]) -> bool
     return r.ok
 end
 
-// scan returns every item of the table (all pages). Raises on failure.
-func scan(client: Client, table: string) -> map[string, any][]
-    let items: map[string, any][] = dynamodb_scan(client.handle, table)
+// scan returns up to `limit` items of the table, following pagination only
+// as far as needed. limit 0 returns EVERY item — on a large table that is
+// bounded only by the 60 s call deadline; prefer a limit or scan_page.
+// Raises on failure.
+func scan(client: Client, table: string, limit: int) -> map[string, any][]
+    let items: map[string, any][] = dynamodb_scan(client.handle, table, limit)
     return items
 end
 
-// query returns the items matching a key condition expression ("id = :id")
-// with its expression attribute values ({":id": "u1"}), all pages. Raises on
-// failure.
-func query(client: Client, table: string, key_condition: string, expression_values: map[string, any]) -> map[string, any][]
-    let items: map[string, any][] = dynamodb_query(client.handle, table, key_condition, expression_values)
+// scan_page fetches one page: up to `limit` items (0 = DynamoDB's natural
+// page, at most 1 MB) starting after start_key (null = from the beginning).
+// Iterate while page.last_key != null. Raises on failure.
+func scan_page(client: Client, table: string, limit: int, start_key: map[string, any]?) -> Page
+    let raw: map[string, any] = dynamodb_scan_page(client.handle, table, limit, start_key)
+    return _page(raw)
+end
+
+// query returns up to `limit` items matching a key condition expression
+// ("id = :id") with its expression attribute values ({":id": "u1"}), with
+// the same limit semantics as scan. Raises on failure.
+func query(client: Client, table: string, key_condition: string, expression_values: map[string, any], limit: int) -> map[string, any][]
+    let items: map[string, any][] = dynamodb_query(client.handle, table, key_condition, expression_values, limit)
     return items
+end
+
+// query_page fetches one page of a query, like scan_page.
+func query_page(client: Client, table: string, key_condition: string, expression_values: map[string, any], limit: int, start_key: map[string, any]?) -> Page
+    let raw: map[string, any] = dynamodb_query_page(client.handle, table, key_condition, expression_values, limit, start_key)
+    return _page(raw)
+end
+
+func _page(raw: map[string, any]) -> Page
+    let items: map[string, any][] = raw["items"]
+    let last_key: map[string, any]? = raw["last_key"]
+    return Page(items, last_key)
 end
