@@ -1,0 +1,4 @@
+# Built plugin binaries: bin/ is what `noxy --get` populates (or a local
+# `go build -o bin/<asset> .` during development); dist/ is release/build.sh.
+bin/
+dist/

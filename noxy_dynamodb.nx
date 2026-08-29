@@ -1,0 +1,72 @@
+// noxy_dynamodb.nx — typed wrapper over the `dynamodb` process extension.
+//
+// The natives (dynamodb_connect, dynamodb_put_item, ...) are registered by
+// the VM from noxy_ext.toml when this module is imported; the binary in
+// bin/ starts on the first call. A failure inside the extension is a
+// runtime error (`extension 'dynamodb' failed: <message>`): connect,
+// get_item, scan and query raise it; put_item, update_item and delete_item
+// keep their `-> bool` shape through call_result.
+use errors select *
+
+// A client minted by connect; valid until close (or the end of the process).
+struct Client
+    handle: int
+end
+
+// connect opens a client. options: {"region": "us-east-1"}; also accepted:
+// "endpoint" (e.g. DynamoDB Local) and "profile" (a shared-config profile).
+// {} uses the default AWS credential and region chain. Raises when the AWS
+// configuration cannot be loaded or an option is unknown.
+func connect(options: map[string, any]) -> Client
+    return Client(dynamodb_connect(options))
+end
+
+// close releases the client. Using a closed client raises.
+func close(client: Client) -> void
+    dynamodb_close(client.handle)
+end
+
+// put_item writes item, replacing any item with the same key. Returns false
+// when the write failed (unknown table, credentials, ...).
+func put_item(client: Client, table: string, item: map[string, any]) -> bool
+    let r = call_result(dynamodb_put_item, client.handle, table, item)
+    return r.ok
+end
+
+// get_item returns the item with the given key, or null when it does not
+// exist. Raises on failure. Numbers come back as float.
+func get_item(client: Client, table: string, key: map[string, any]) -> map[string, any]?
+    let found: any = dynamodb_get_item(client.handle, table, key)
+    if found == null then
+        return null
+    end
+    let item: map[string, any] = found
+    return item
+end
+
+// update_item applies an update expression ("SET age = :a") with its
+// expression attribute values ({":a": 30}). Returns false on failure.
+func update_item(client: Client, table: string, key: map[string, any], update_expression: string, expression_values: map[string, any]) -> bool
+    let r = call_result(dynamodb_update_item, client.handle, table, key, update_expression, expression_values)
+    return r.ok
+end
+
+// delete_item removes the item with the given key. Returns false on failure.
+func delete_item(client: Client, table: string, key: map[string, any]) -> bool
+    let r = call_result(dynamodb_delete_item, client.handle, table, key)
+    return r.ok
+end
+
+// scan returns every item of the table (all pages). Raises on failure.
+func scan(client: Client, table: string) -> map[string, any][]
+    let items: map[string, any][] = dynamodb_scan(client.handle, table)
+    return items
+end
+
+// query returns the items matching a key condition expression ("id = :id")
+// with its expression attribute values ({":id": "u1"}), all pages. Raises on
+// failure.
+func query(client: Client, table: string, key_condition: string, expression_values: map[string, any]) -> map[string, any][]
+    let items: map[string, any][] = dynamodb_query(client.handle, table, key_condition, expression_values)
+    return items
+end

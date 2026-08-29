@@ -1,0 +1,30 @@
+# Release workflow for the noxy_dynamodb process extension (from the Noxy
+# SDK template, sdk/noxyplugin/release/github-release.yml).
+#
+# On a `v*` tag push it builds the linux/darwin/windows amd64/arm64 matrix
+# with release/build.sh, writes dist/checksums.txt, and publishes both as
+# assets on the GitHub release for the tag — exactly what `noxy --get`
+# downloads: the asset names are the ones listed under [binaries] in
+# noxy_ext.toml.
+
+name: Release
+
+on:
+  push:
+    tags: ['v*']
+
+permissions:
+  contents: write
+
+jobs:
+  release:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v7
+      - uses: actions/setup-go@v7
+        with:
+          go-version-file: go.mod
+      - run: sh release/build.sh dynamodb
+      - uses: softprops/action-gh-release@v2
+        with:
+          files: dist/*

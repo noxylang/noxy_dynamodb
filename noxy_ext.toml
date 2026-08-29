@@ -1,0 +1,56 @@
+name = "dynamodb"
+abi = 1
+kind = "process"
+min_noxy = "0.23.0"
+concurrency = "concurrent"      # one process, handles are process-wide
+capabilities = ["net", "env"]   # AWS credentials come from the environment
+call_timeout_ms = 60000
+
+[binaries]                      # release assets; noxy --get downloads the one for your OS/arch
+linux-amd64   = "noxy-plugin-dynamodb-linux-amd64"
+linux-arm64   = "noxy-plugin-dynamodb-linux-arm64"
+darwin-amd64  = "noxy-plugin-dynamodb-darwin-amd64"
+darwin-arm64  = "noxy-plugin-dynamodb-darwin-arm64"
+windows-amd64 = "noxy-plugin-dynamodb-windows-amd64.exe"
+windows-arm64 = "noxy-plugin-dynamodb-windows-arm64.exe"
+
+[[export]]
+name = "dynamodb_connect"
+params = ["map[string]any"]
+returns = "int"
+stateful = true
+
+[[export]]
+name = "dynamodb_put_item"
+params = ["int", "string", "map[string]any"]
+returns = "void"
+
+[[export]]
+name = "dynamodb_get_item"
+params = ["int", "string", "map[string]any"]
+returns = "any"                 # the item, or null when the key does not exist
+
+[[export]]
+name = "dynamodb_update_item"
+params = ["int", "string", "map[string]any", "string", "map[string]any"]
+returns = "void"
+
+[[export]]
+name = "dynamodb_delete_item"
+params = ["int", "string", "map[string]any"]
+returns = "void"
+
+[[export]]
+name = "dynamodb_scan"
+params = ["int", "string"]
+returns = "map[string]any[]"
+
+[[export]]
+name = "dynamodb_query"
+params = ["int", "string", "string", "map[string]any"]
+returns = "map[string]any[]"
+
+[[export]]
+name = "dynamodb_close"
+params = ["int"]
+returns = "void"
