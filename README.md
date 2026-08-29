@@ -44,7 +44,7 @@ Because this library uses a native Go plugin for high performance and AWS SDK in
 Import the library and use the `dynamodb` module.
 
 ```noxy
-use github_com.estevaofon.noxy_dynamodb as dynamodb
+use github_com.estevaofon.noxy_dynamodb.dynamodb as dynamodb
 
 func main() -> void
     // 1. Connect (Uses default AWS credentials)
