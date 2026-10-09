@@ -1,6 +1,6 @@
 # Noxy DynamoDB
 
-A DynamoDB client for the [Noxy](https://github.com/estevaofon/noxy) language,
+A DynamoDB client for the [Noxy](https://github.com/noxylang/noxy) language,
 shipped as a **process extension**: `noxy --get` downloads a prebuilt binary
 for your platform, verifies it, and records its hash in `noxy.sum`. No Go
 toolchain, no build step.
@@ -11,11 +11,11 @@ linux/arm64, darwin/amd64, darwin/arm64, windows/amd64 and windows/arm64.
 ## Installation
 
 ```bash
-noxy --get github.com/estevaofon/noxy_dynamodb@v0.3.0
+noxy --get github.com/noxylang/noxy_dynamodb@v0.3.0
 ```
 
 Without `@version`, `--get` resolves the newest release tag. The package lands
-in `noxy_libs/github_com/estevaofon/noxy_dynamodb/` with the binary for your
+in `noxy_libs/github_com/noxylang/noxy_dynamodb/` with the binary for your
 OS/arch in `bin/`; `noxy.sum` gets one line for the manifest plus one per
 published binary, so commit it — the same lockfile verifies a teammate's
 macOS download and a Lambda's Linux binary.
@@ -23,7 +23,7 @@ macOS download and a Lambda's Linux binary.
 ## Usage
 
 ```noxy
-use github_com.estevaofon.noxy_dynamodb as dynamodb
+use github_com.noxylang.noxy_dynamodb as dynamodb
 
 func main() -> void
     // Credentials and region come from the environment (see below).
@@ -162,7 +162,7 @@ String, number and binary *sets* come back as arrays.
 ## AWS Lambda
 
 Deploy the package directory as it is installed —
-`noxy_libs/github_com/estevaofon/noxy_dynamodb/` with `noxy_ext.toml`,
+`noxy_libs/github_com/noxylang/noxy_dynamodb/` with `noxy_ext.toml`,
 `noxy_dynamodb.nx` and `bin/noxy-plugin-dynamodb-linux-amd64` (or
 `-linux-arm64` on Graviton) with the execute bit — next to your `noxy.mod`
 and `noxy.sum`. `noxy --get` on a Windows or macOS workstation only
@@ -170,9 +170,9 @@ downloads that workstation's binary, but it records the Linux hashes in
 `noxy.sum`; fetch the Lambda's binary from the release page into `bin/`:
 
 ```bash
-curl -L -o noxy_libs/github_com/estevaofon/noxy_dynamodb/bin/noxy-plugin-dynamodb-linux-amd64 \
-  https://github.com/estevaofon/noxy_dynamodb/releases/download/v0.3.0/noxy-plugin-dynamodb-linux-amd64
-chmod +x noxy_libs/github_com/estevaofon/noxy_dynamodb/bin/noxy-plugin-dynamodb-linux-amd64
+curl -L -o noxy_libs/github_com/noxylang/noxy_dynamodb/bin/noxy-plugin-dynamodb-linux-amd64 \
+  https://github.com/noxylang/noxy_dynamodb/releases/download/v0.3.0/noxy-plugin-dynamodb-linux-amd64
+chmod +x noxy_libs/github_com/noxylang/noxy_dynamodb/bin/noxy-plugin-dynamodb-linux-amd64
 ```
 
 The VM verifies the binary against `noxy.sum` before starting it. Nothing
@@ -181,7 +181,7 @@ for the layer layout.
 
 ## Migrating from v0.1.x
 
-- Import the package as `use github_com.estevaofon.noxy_dynamodb as dynamodb`
+- Import the package as `use github_com.noxylang.noxy_dynamodb as dynamodb`
   (the wrapper is now `noxy_dynamodb.nx`; the old `...noxy_dynamodb.dynamodb`
   path is gone).
 - No build step: `build_plugin.sh` / `build_plugin.ps1` and
@@ -200,7 +200,7 @@ for the layer layout.
 ## Development
 
 The extension is a Go program on the Noxy plugin SDK
-(`github.com/estevaofon/noxy/sdk/noxyplugin`). To run a checkout without a
+(`github.com/noxylang/noxy/sdk/noxyplugin`). To run a checkout without a
 release, build your platform's asset (the name is in `[binaries]` of
 `noxy_ext.toml`) and point a project at the checkout:
 
@@ -210,7 +210,7 @@ CGO_ENABLED=0 go build -o bin/noxy-plugin-dynamodb-windows-amd64.exe .   # or -l
 ```
 
 Copy (or symlink) the checkout to
-`<project>/noxy_libs/github_com/estevaofon/noxy_dynamodb`; without a
+`<project>/noxy_libs/github_com/noxylang/noxy_dynamodb`; without a
 `noxy.sum` entry the VM prints a trust-on-first-use warning and runs it.
 
 Releasing: push a tag `vX.Y.Z`. The GitHub Actions workflow

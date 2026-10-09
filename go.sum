@@ -34,5 +34,5 @@ github.com/aws/aws-sdk-go-v2/service/sts v1.47.1 h1:Sv2xPnRHlThSUtVujYuUBPI/Il8s
 github.com/aws/aws-sdk-go-v2/service/sts v1.47.1/go.mod h1:mKo/CzaCz8qytGW70NG4vIIGAx1HXTlb5lHNkC5k3lk=
 github.com/aws/smithy-go v1.28.1 h1:R/nXH00c8qcfCzQVELtRw+eLQWtzv+VAIEFJ1/xxXlQ=
 github.com/aws/smithy-go v1.28.1/go.mod h1:YE2RhdIuDbA5E5bTdciG9KrW3+TiEONeUWCqxX9i1Fc=
-github.com/estevaofon/noxy/sdk/noxyplugin v0.1.0 h1:4BCIg+faFDAIhaiB40cKxn9SnzcBIdFoV0LVR7OOJ38=
-github.com/estevaofon/noxy/sdk/noxyplugin v0.1.0/go.mod h1:8JFy0k46p+HbFooarVYvqyL1YVyOX4h1JyuwESHk7dM=
+github.com/noxylang/noxy/sdk/noxyplugin v0.1.1 h1:LqOJbXafbX8pWLGRHnI1C8usLzCeNT542WbH85AOhwU=
+github.com/noxylang/noxy/sdk/noxyplugin v0.1.1/go.mod h1:wuzGfzFX0eAhjOMqngTOiGpH+EotAHjXoPas3LRlClY=

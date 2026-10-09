@@ -1,4 +1,4 @@
-module github.com/estevaofon/noxy_dynamodb
+module github.com/noxylang/noxy_dynamodb
 
 go 1.25
 
@@ -7,7 +7,7 @@ require (
 	github.com/aws/aws-sdk-go-v2/config v1.33.1
 	github.com/aws/aws-sdk-go-v2/feature/dynamodb/attributevalue v1.21.1
 	github.com/aws/aws-sdk-go-v2/service/dynamodb v1.65.1
-	github.com/estevaofon/noxy/sdk/noxyplugin v0.1.0
+	github.com/noxylang/noxy/sdk/noxyplugin v0.1.1
 )
 
 require (
