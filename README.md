@@ -23,7 +23,7 @@ macOS download and a Lambda's Linux binary.
 ## Usage
 
 ```noxy
-use github_com.estevaofon.noxy_dynamodb as dynamodb
+use github_com.estevaofon.noxy_dynamodb.dynamodb as dynamodb
 
 func main() -> void
     // Credentials and region come from the environment (see below).
